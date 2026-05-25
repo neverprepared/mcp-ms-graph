@@ -1,5 +1,6 @@
 /mcp-ms-graph
 /dist/
+/chrome-extension.zip
 *.test
 *.out
 .DS_Store

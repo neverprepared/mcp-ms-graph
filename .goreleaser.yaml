@@ -5,6 +5,7 @@ project_name: mcp-ms-graph
 before:
   hooks:
     - go mod tidy
+    - zip -r chrome-extension.zip chrome-extensions/
 
 builds:
   - main: ./cmd/mcp-ms-graph
@@ -52,3 +53,5 @@ release:
   github:
     owner: neverprepared
     name: mcp-ms-graph
+  extra_files:
+    - glob: ./chrome-extension.zip

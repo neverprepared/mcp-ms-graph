@@ -14,32 +14,42 @@ Calendar (6), Profile + Presence (2).
 
 ## Install
 
+### Homebrew (macOS ARM64)
+
 ```bash
 brew install neverprepared/tap/mcp-ms-graph
 ```
 
+### Manual
+
+Download the latest `mcp-ms-graph_darwin_arm64.tar.gz` from the [releases page](https://github.com/neverprepared/mcp-ms-graph/releases/latest), extract, and move the binary somewhere on your `$PATH`:
+
+```bash
+tar -xzf mcp-ms-graph_darwin_arm64.tar.gz
+mv mcp-ms-graph /usr/local/bin/
+```
+
 ## Setup
 
-1. Install the Chrome extension from `chrome-extensions/microsoft/`.
+1. Download `chrome-extension.zip` from the [latest release](https://github.com/neverprepared/mcp-ms-graph/releases/latest), unzip it, then load the `chrome-extensions/microsoft/` folder as an unpacked extension in Chrome (`chrome://extensions` → **Load unpacked**).
 2. Open Graph Explorer (`developer.microsoft.com/graph/graph-explorer`), sign in.
 3. Click the extension icon → generate an encryption key (or paste an existing one).
 4. Configure an Ably API key and channel name in the extension popup.
-5. Run the matching server setup wizard:
+5. Run the setup wizard once to store credentials in the macOS Keychain:
 
    ```bash
    mcp-ms-graph setup
    ```
 
-   Paste the same Ably API key, channel name, and encryption passphrase. They
-   are stored in the macOS Keychain (service `mcp-ms-graph`).
+   Paste the same Ably API key, channel name, and encryption passphrase.
 
-6. Add to your MCP host config (e.g. Claude Code `~/.claude/mcp.json`):
+6. Add to your MCP host config (e.g. Claude Code):
 
    ```json
    {
      "mcpServers": {
        "ms-graph": {
-         "command": "mcp-ms-graph"
+         "command": "/opt/homebrew/bin/mcp-ms-graph"
        }
      }
    }
