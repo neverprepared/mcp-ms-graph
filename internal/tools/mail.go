@@ -169,6 +169,41 @@ func RegisterMailTools(s *server.MCPServer, c *client.GraphClient) {
 		return okJSON(map[string]any{"status": "read"}), nil
 	}))
 
+	s.AddTool(mcp.NewTool("list_mail_folders",
+		mcp.WithDescription("List the user's mail folders with IDs, names, and unread/total counts. Use the returned IDs as destination for move_email, or pass well-known names (inbox, archive, deleteditems, drafts, junkemail, sentitems, outbox) directly."),
+	), wrap("list_mail_folders", func(req mcp.CallToolRequest) (string, error) {
+		g, err := c.Graph()
+		if err != nil {
+			return "", err
+		}
+		folders, err := g.ListMailFolders()
+		if err != nil {
+			return "", err
+		}
+		return okJSON(folders), nil
+	}))
+
+	s.AddTool(mcp.NewTool("move_email",
+		mcp.WithDescription("Move an email to another folder. destination accepts either a folder ID from list_mail_folders or a well-known name (inbox, archive, deleteditems, drafts, junkemail, sentitems, outbox). Returns the new message ID — Graph reassigns IDs after a move."),
+		mcp.WithString("message_id", mcp.Required(), mcp.Description("The email message ID to move.")),
+		mcp.WithString("destination", mcp.Required(), mcp.Description("Folder ID or well-known folder name (e.g. \"archive\", \"deleteditems\").")),
+	), wrap("move_email", func(req mcp.CallToolRequest) (string, error) {
+		id := strArg(req, "message_id")
+		dest := strArg(req, "destination")
+		if id == "" || dest == "" {
+			return "", fmt.Errorf("message_id and destination are required")
+		}
+		g, err := c.Graph()
+		if err != nil {
+			return "", err
+		}
+		newID, err := g.MoveMessage(id, dest)
+		if err != nil {
+			return "", err
+		}
+		return okJSON(map[string]any{"status": "moved", "new_id": newID}), nil
+	}))
+
 	s.AddTool(mcp.NewTool("mark_email_unread",
 		mcp.WithDescription("Mark an email as unread."),
 		mcp.WithString("message_id", mcp.Required(), mcp.Description("The email message ID.")),

@@ -142,3 +142,38 @@ func (c *Client) ReplyToMessage(id, comment string) error {
 	}
 	return c.Post(fmt.Sprintf("/me/messages/%s/reply", id), payload, nil)
 }
+
+type MailFolder struct {
+	ID               string `json:"id"`
+	DisplayName      string `json:"displayName"`
+	ParentFolderID   string `json:"parentFolderId"`
+	ChildFolderCount int    `json:"childFolderCount"`
+	TotalItemCount   int    `json:"totalItemCount"`
+	UnreadItemCount  int    `json:"unreadItemCount"`
+}
+
+// ListMailFolders returns the top-level mail folders, including well-known
+// folders like Inbox, Archive, Deleted Items, Drafts, Sent Items, Junk Email.
+func (c *Client) ListMailFolders() ([]MailFolder, error) {
+	var result GraphList[MailFolder]
+	// includeHiddenFolders surfaces folders like "Archive" that Outlook hides by default.
+	if err := c.Get("/me/mailFolders?$top=100&includeHiddenFolders=true", &result); err != nil {
+		return nil, err
+	}
+	return result.Value, nil
+}
+
+// MoveMessage moves an email to the given folder. destinationID accepts either
+// a folder ID returned from ListMailFolders or a well-known folder name
+// (inbox, archive, deleteditems, drafts, junkemail, sentitems, outbox).
+// Returns the new message ID (Graph assigns a new ID after a move).
+func (c *Client) MoveMessage(messageID, destinationID string) (string, error) {
+	var moved MailMessage
+	err := c.Post(fmt.Sprintf("/me/messages/%s/move", messageID),
+		map[string]interface{}{"destinationId": destinationID},
+		&moved)
+	if err != nil {
+		return "", err
+	}
+	return moved.ID, nil
+}
