@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      width: 400px; height: 500px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      padding: 0; margin: 0; color: #333;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #0078d4, #005a9e);
+      color: white; padding: 12px 16px;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-shrink: 0;
+    }
+    .header h2 { margin: 0; font-size: 15px; font-weight: 600; }
+    .header .subtitle { font-size: 11px; opacity: 0.8; margin-top: 1px; }
+    .settings-icon {
+      width: 18px; height: 18px; color: white; cursor: pointer;
+      opacity: 0.8; transition: opacity 0.2s;
+    }
+    .settings-icon:hover { opacity: 1; }
+
+    /* Profile bar */
+    .profile-bar {
+      padding: 10px 16px; border-bottom: 1px solid #eee;
+      flex-shrink: 0; display: flex; flex-direction: column; gap: 2px;
+      overflow: hidden;
+    }
+    .profile-bar .name {
+      font-size: 14px; font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .profile-bar .meta {
+      font-size: 11px; color: #666;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .profile-bar .tenant {
+      font-size: 10px; color: #888;
+      padding: 2px 6px; background: #f5f5f5; border-radius: 3px;
+      display: block; max-width: fit-content;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      max-width: 100%;
+    }
+    .profile-bar .not-connected { font-size: 12px; color: #999; font-style: italic; }
+    .profile-bar .token-expiry {
+      font-size: 10px; padding: 2px 6px; border-radius: 3px;
+      display: block; max-width: fit-content;
+    }
+    .profile-bar .token-expiry.ok { background: #e8f5e9; color: #2e7d32; }
+    .profile-bar .token-expiry.warn { background: #fff3e0; color: #e65100; }
+    .profile-bar .token-expiry.expired { background: #fbe9e7; color: #c62828; }
+
+    /* Tabs */
+    .tab-bar {
+      display: flex; border-bottom: 1px solid #eee;
+      flex-shrink: 0;
+    }
+    .tab {
+      flex: 1; padding: 8px 4px; text-align: center;
+      font-size: 11px; font-weight: 600; color: #888;
+      cursor: pointer; border-bottom: 2px solid transparent;
+      transition: color 0.2s, border-color 0.2s;
+      white-space: nowrap;
+    }
+    .tab:hover { color: #555; }
+    .tab.active { color: #0078d4; border-bottom-color: #0078d4; }
+
+    /* Tab content */
+    .tab-content {
+      flex: 1; overflow-y: auto; padding: 0;
+    }
+    .tab-pane { display: none; padding: 8px 16px; overflow: hidden; }
+    .tab-pane.active { display: block; overflow-y: auto; height: 100%; }
+
+    /* Shared styles */
+    .section-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      color: #999; letter-spacing: 0.5px; margin: 12px 0 6px;
+    }
+    .section-label:first-child { margin-top: 4px; }
+
+    /* Calendar */
+    .meeting {
+      padding: 8px 0; border-bottom: 1px solid #f0f0f0;
+    }
+    .meeting:last-child { border-bottom: none; }
+    .meeting .time { font-size: 11px; color: #0078d4; font-weight: 600; }
+    .meeting .subject {
+      font-size: 12px; margin-top: 2px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .meeting .location {
+      font-size: 11px; color: #888; margin-top: 1px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .meeting a {
+      font-size: 11px; color: #0078d4; text-decoration: none;
+    }
+    .meeting a:hover { text-decoration: underline; }
+
+    /* People */
+    .search-input {
+      width: 100%; padding: 6px 8px; border: 1px solid #ddd;
+      border-radius: 4px; font-size: 12px; margin-bottom: 8px;
+    }
+    .person {
+      padding: 8px 0; border-bottom: 1px solid #f0f0f0;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .person:last-child { border-bottom: none; }
+    .person .avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: #0078d4; color: white; display: flex;
+      align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 600; flex-shrink: 0;
+    }
+    .person .info { flex: 1; min-width: 0; }
+    .person .pname {
+      font-size: 12px; font-weight: 600;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .person .ptitle {
+      font-size: 11px; color: #666;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .person .pemail {
+      font-size: 11px; color: #888;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .presence-dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+      margin-right: 4px;
+    }
+    .presence-dot.available { background: #4caf50; }
+    .presence-dot.busy { background: #f44336; }
+    .presence-dot.away { background: #ff9800; }
+    .presence-dot.dnd { background: #f44336; }
+    .presence-dot.offline { background: #999; }
+    .presence-dot.unknown { background: #999; }
+
+    /* Files */
+    .file {
+      padding: 6px 0; border-bottom: 1px solid #f0f0f0;
+    }
+    .file:last-child { border-bottom: none; }
+    .file a {
+      font-size: 12px; color: #0078d4; text-decoration: none;
+      display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .file a:hover { text-decoration: underline; }
+    .file .fmeta { font-size: 10px; color: #888; margin-top: 1px; }
+
+    /* Security */
+    .signin {
+      padding: 6px 0; border-bottom: 1px solid #f0f0f0;
+      font-size: 12px;
+    }
+    .signin:last-child { border-bottom: none; }
+    .signin .slocation { color: #555; }
+    .signin .stime { font-size: 11px; color: #888; }
+    .signin .sapp { font-size: 11px; color: #666; }
+
+    /* Links */
+    .links a {
+      display: block; padding: 5px 0;
+      color: #0078d4; text-decoration: none; font-size: 12px;
+    }
+    .links a:hover { text-decoration: underline; }
+
+    /* Settings view */
+    .settings-view { display: none; flex-direction: column; flex: 1; }
+    .settings-view.show { display: flex; }
+    .main-content { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+    .main-content.hide { display: none; }
+
+    .back-btn {
+      font-size: 12px; color: #0078d4; cursor: pointer;
+      border: none; background: none; padding: 8px 16px;
+      text-align: left; flex-shrink: 0;
+    }
+    .back-btn:hover { text-decoration: underline; }
+    .settings-scroll { flex: 1; overflow-y: auto; padding: 0 16px 12px; min-height: 0; }
+
+    .toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .toggle-row span { font-weight: 600; font-size: 12px; }
+    .switch {
+      position: relative; width: 36px; height: 20px;
+      background: #ccc; border-radius: 10px; cursor: pointer;
+      transition: background 0.2s;
+    }
+    .switch.on { background: #0078d4; }
+    .switch .knob {
+      position: absolute; top: 2px; left: 2px;
+      width: 16px; height: 16px; background: white;
+      border-radius: 50%; transition: left 0.2s;
+    }
+    .switch.on .knob { left: 18px; }
+    .relay-status { font-size: 11px; color: #888; margin-bottom: 8px; }
+
+    .config-fields label {
+      display: block; font-weight: 600; font-size: 11px;
+      margin-top: 6px; color: #555;
+    }
+    .config-fields input {
+      width: 100%; padding: 5px; margin-top: 2px;
+      border: 1px solid #ddd; border-radius: 3px; font-size: 12px;
+    }
+    .config-fields button {
+      margin-top: 8px; padding: 6px 12px;
+      background: #0078d4; color: white; border: none;
+      border-radius: 3px; cursor: pointer; font-size: 12px;
+    }
+    .config-fields button:hover { background: #005a9e; }
+    .save-msg {
+      font-size: 11px; margin-top: 8px; padding: 6px 8px;
+      border-radius: 3px; display: none;
+    }
+    .save-msg.success { display: block; background: #e8f5e9; color: #2e7d32; }
+    .save-msg.error { display: block; background: #fbe9e7; color: #c62828; }
+
+    .key-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #eee; }
+    .key-status { font-size: 11px; color: #888; margin: 4px 0 8px; }
+    .key-status.active { color: #2e7d32; }
+    .key-status.missing { color: #e65100; }
+    .key-display {
+      font-family: monospace; font-size: 11px;
+      overflow-wrap: break-word; word-wrap: break-word;
+      background: #f5f5f5; padding: 8px; border-radius: 3px;
+      margin-bottom: 8px; display: none; cursor: pointer;
+      border: 1px solid #ddd; min-height: 2.5em;
+    }
+    .key-display.show { display: block; }
+    .key-display .hint { font-family: sans-serif; color: #999; font-size: 10px; margin-top: 4px; }
+    .key-buttons { display: flex; gap: 6px; }
+    .key-btn { flex: 1; margin-top: 0; padding: 6px 8px; font-size: 11px; }
+    .key-btn.secondary { background: #666; }
+    .key-btn.secondary:hover { background: #444; }
+    .key-input-row {
+      display: none; margin-top: 6px; gap: 6px; align-items: center;
+    }
+    .key-input-row.show { display: flex; }
+    .key-input-row input { flex: 1; }
+    .key-input-row button { flex: 0; width: auto; margin-top: 0; }
+
+    .empty { font-size: 12px; color: #999; font-style: italic; padding: 12px 0; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h2>MSG</h2>
+      <div class="subtitle">Account snapshot</div>
+    </div>
+    <svg id="settingsBtn" class="settings-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"></circle>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+    </svg>
+  </div>
+
+  <div class="main-content" id="mainContent">
+    <div class="profile-bar" id="profile">
+      <div class="not-connected">No token — open Graph Explorer and sign in</div>
+    </div>
+
+    <div class="tab-bar">
+      <div class="tab active" data-tab="links">Links</div>
+      <div class="tab" data-tab="calendar">Calendar</div>
+      <div class="tab" data-tab="people">People</div>
+      <div class="tab" data-tab="files">Files</div>
+    </div>
+
+    <div class="tab-content">
+      <!-- Calendar -->
+      <div class="tab-pane" id="tab-calendar">
+        <div class="section-label">Upcoming</div>
+        <div id="meetings"><div class="empty">Loading...</div></div>
+      </div>
+
+      <!-- People -->
+      <div class="tab-pane" id="tab-people">
+        <input type="text" class="search-input" id="peopleSearch" placeholder="Search people...">
+        <div id="peopleResults"><div class="empty">Type a name to search</div></div>
+      </div>
+
+      <!-- Files -->
+      <div class="tab-pane" id="tab-files">
+        <div class="section-label">Recent Files</div>
+        <div id="recentFiles"><div class="empty">Loading...</div></div>
+      </div>
+
+      <!-- Links -->
+      <div class="tab-pane active" id="tab-links">
+        <div class="section-label">Microsoft 365</div>
+        <div class="links">
+          <a href="https://myapps.microsoft.com" target="_blank">My Apps</a>
+          <a href="https://myaccount.microsoft.com" target="_blank">My Account</a>
+          <a href="https://portal.office.com" target="_blank">Office Portal</a>
+        </div>
+        <div class="section-label">Azure</div>
+        <div class="links">
+          <a href="https://portal.azure.com" target="_blank">Azure Portal</a>
+          <a href="https://admin.microsoft.com" target="_blank">Admin Center</a>
+          <a href="https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredApps" target="_blank">App Registrations</a>
+          <a href="https://entra.microsoft.com" target="_blank">Entra Admin Center</a>
+        </div>
+        <div class="section-label">Developer</div>
+        <div class="links">
+          <a href="https://developer.microsoft.com/en-us/graph/graph-explorer" target="_blank">Graph Explorer</a>
+          <a href="https://learn.microsoft.com/en-us/graph/api/overview" target="_blank">Graph API Reference</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="settings-view" id="settingsView">
+    <button class="back-btn" id="backBtn">← Back</button>
+    <div class="settings-scroll">
+      <div class="section-label">Sync</div>
+      <div class="toggle-row">
+        <span>Sync</span>
+        <div id="toggle" class="switch"><div class="knob"></div></div>
+      </div>
+      <div class="relay-status" id="relayStatus"></div>
+
+      <div class="config-fields">
+        <label>Service Key</label>
+        <input type="password" id="ablyKey" placeholder="xxxxx.yyyy:zzzz">
+        <label>Channel</label>
+        <input type="text" id="ablyChannel" placeholder="channel name">
+        <label>Interval (seconds)</label>
+        <input type="number" id="interval" value="30" min="10" max="300">
+        <button id="save">Save</button>
+        <div class="save-msg" id="saveMsg"></div>
+
+        <div class="key-section">
+          <label>Tokens</label>
+          <div class="key-buttons">
+            <button id="refreshToken" class="key-btn">Refresh Now</button>
+            <button id="clearTokens" class="key-btn secondary">Clear All</button>
+          </div>
+          <div class="save-msg" id="clearMsg"></div>
+        </div>
+
+        <div class="key-section">
+          <label>Encryption Key</label>
+          <div class="key-status" id="keyStatus">Checking...</div>
+          <div class="key-display" id="keyDisplay"></div>
+          <div class="key-buttons">
+            <button id="generateKey" class="key-btn">Generate New Key</button>
+            <button id="enterKey" class="key-btn secondary">Enter Existing Key</button>
+          </div>
+          <div class="key-input-row" id="keyInputRow">
+            <input type="text" id="keyInput" placeholder="Paste key">
+            <button id="setKey" class="key-btn">Set</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

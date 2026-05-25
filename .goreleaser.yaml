@@ -1,0 +1,54 @@
+version: 2
+
+project_name: mcp-ms-graph
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/mcp-ms-graph
+    binary: mcp-ms-graph
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    env:
+      - CGO_ENABLED=1
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+brews:
+  - name: mcp-ms-graph
+    repository:
+      owner: neverprepared
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+      branch: main
+    directory: Formula
+    homepage: "https://github.com/neverprepared/mcp-ms-graph"
+    description: "MCP server for Microsoft Graph — Teams chat, Outlook mail, and Calendar"
+    license: "MIT"
+    install: |
+      bin.install "mcp-ms-graph"
+    caveats: |
+      Before first use, run the setup wizard:
+        mcp-ms-graph setup
+
+      Then configure your MCP host (e.g. Claude Code) to run:
+        mcp-ms-graph
+
+release:
+  github:
+    owner: neverprepared
+    name: mcp-ms-graph

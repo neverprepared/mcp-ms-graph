@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "MSG",
+  "version": "1.0.0",
+  "description": "Microsoft 365 account snapshot and quick links",
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://developer.microsoft.com/*",
+    "https://graph.microsoft.com/*",
+    "https://login.microsoftonline.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://developer.microsoft.com/*/graph/graph-explorer*",
+        "https://developer.microsoft.com/graph/graph-explorer*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["injector.js"],
+      "matches": [
+        "https://developer.microsoft.com/*"
+      ]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  }
+}
