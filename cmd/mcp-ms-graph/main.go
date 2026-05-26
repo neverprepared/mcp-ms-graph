@@ -264,7 +264,7 @@ func runMetrics(cmd *cobra.Command, args []string) error {
 	}
 	if raw2 || typeName != "" {
 		if s, ok := formatRaw(doc); ok {
-			fmt.Fprintln(os.Stdout, s)
+			fmt.Fprint(os.Stdout, s)
 			return nil
 		}
 	}
