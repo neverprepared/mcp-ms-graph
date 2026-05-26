@@ -17,10 +17,11 @@ type Event struct {
 	OnlineMeetingURL string       `json:"onlineMeetingUrl"`
 	OnlineMeeting    *OnlineMtg   `json:"onlineMeeting"`
 	Organizer        *Organizer   `json:"organizer"`
-	IsAllDay         bool         `json:"isAllDay"`
-	ShowAs           string       `json:"showAs"`
-	ResponseStatus   *ResponseStatus `json:"responseStatus"`
-	Attendees        []Attendee   `json:"attendees"`
+	IsAllDay        bool            `json:"isAllDay"`
+	IsCancelled     bool            `json:"isCancelled"`
+	ShowAs          string          `json:"showAs"`
+	ResponseStatus  *ResponseStatus `json:"responseStatus"`
+	Attendees       []Attendee      `json:"attendees"`
 }
 
 type DateTimeZone struct {
@@ -142,7 +143,7 @@ func (c *Client) DeleteEvent(eventID string) error {
 }
 
 func (c *Client) GetCalendarView(start, end time.Time) ([]Event, error) {
-	path := fmt.Sprintf("/me/calendarView?startDateTime=%s&endDateTime=%s&$orderby=start/dateTime&$top=25&$select=id,subject,start,end,location,isOnlineMeeting,onlineMeetingUrl,onlineMeeting,organizer,isAllDay,showAs,responseStatus,attendees",
+	path := fmt.Sprintf("/me/calendarView?startDateTime=%s&endDateTime=%s&$orderby=start/dateTime&$top=25&$select=id,subject,start,end,location,isOnlineMeeting,onlineMeetingUrl,onlineMeeting,organizer,isAllDay,isCancelled,showAs,responseStatus,attendees",
 		start.UTC().Format(time.RFC3339),
 		end.UTC().Format(time.RFC3339))
 	var result GraphList[Event]

@@ -417,6 +417,7 @@ func runCalendar(cmd *cobra.Command, args []string) error {
 		Start           string   `json:"start"`
 		End             string   `json:"end"`
 		AllDay          bool     `json:"all_day,omitempty"`
+		Cancelled       bool     `json:"cancelled,omitempty"`
 		Location        string   `json:"location,omitempty"`
 		JoinURL         string   `json:"join_url,omitempty"`
 		Organizer       string   `json:"organizer,omitempty"`
@@ -434,6 +435,7 @@ func runCalendar(cmd *cobra.Command, args []string) error {
 			Start:           e.StartTime().Local().Format(time.RFC3339),
 			End:             e.EndTime().Local().Format(time.RFC3339),
 			AllDay:          e.IsAllDay,
+			Cancelled:       e.IsCancelled,
 			JoinURL:         e.JoinURL(),
 			ShowAs:          e.ShowAs,
 			IsOnlineMeeting: e.IsOnlineMeeting,
