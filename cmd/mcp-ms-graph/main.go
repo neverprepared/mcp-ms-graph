@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -46,9 +47,21 @@ func main() {
 	})
 
 	root.AddCommand(&cobra.Command{
-		Use:   "metrics",
+		Use:   "metrics [filter]",
 		Short: "Print a JSON snapshot of key metrics (mail counts, upcoming meetings, presence)",
-		RunE:  runMetrics,
+		Long: `Print a JSON snapshot of key metrics.
+
+An optional filter argument selects a subset of the output using a dotted path
+(jq-style, no jq required). The leading dot is optional. Examples:
+
+  mcp-ms-graph metrics                    # full document
+  mcp-ms-graph metrics .mail              # just the mail object
+  mcp-ms-graph metrics .mail.unread       # just the unread count (scalar)
+  mcp-ms-graph metrics .account.email     # current account email
+
+Missing paths return JSON null.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: runMetrics,
 	})
 
 	if err := root.Execute(); err != nil {
@@ -73,12 +86,18 @@ type nextEvent struct {
 	Location string `json:"location,omitempty"`
 }
 
+type accountInfo struct {
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name,omitempty"`
+}
+
 type metricsOutput struct {
+	Account  *accountInfo      `json:"account"`
 	Mail     *graph.InboxStats `json:"mail"`
 	Calendar struct {
-		CurrentlyInMeeting bool        `json:"currently_in_meeting"`
-		RemainingToday     int         `json:"remaining_today"`
-		Next               *nextEvent  `json:"next,omitempty"`
+		CurrentlyInMeeting bool       `json:"currently_in_meeting"`
+		RemainingToday     int        `json:"remaining_today"`
+		Next               *nextEvent `json:"next,omitempty"`
 	} `json:"calendar"`
 	Chat struct {
 		Unread int `json:"unread"`
@@ -88,7 +107,7 @@ type metricsOutput struct {
 	Errors      []string        `json:"errors,omitempty"`
 }
 
-func runMetrics(_ *cobra.Command, _ []string) error {
+func runMetrics(_ *cobra.Command, args []string) error {
 	log.SetOutput(io.Discard)
 	c, err := client.New(&cache.TokenCache{})
 	if err != nil {
@@ -111,6 +130,28 @@ func runMetrics(_ *cobra.Command, _ []string) error {
 		out.Errors = append(out.Errors, e.Error())
 		mu.Unlock()
 	}
+
+	// account (/me)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var me struct {
+			Mail              string `json:"mail"`
+			UserPrincipalName string `json:"userPrincipalName"`
+			DisplayName       string `json:"displayName"`
+		}
+		if err := g.Get("/me?$select=mail,userPrincipalName,displayName", &me); err != nil {
+			addErr(fmt.Errorf("account: %w", err))
+			return
+		}
+		email := me.Mail
+		if email == "" {
+			email = me.UserPrincipalName
+		}
+		mu.Lock()
+		out.Account = &accountInfo{Email: email, DisplayName: me.DisplayName}
+		mu.Unlock()
+	}()
 
 	// inbox stats
 	wg.Add(1)
@@ -197,9 +238,52 @@ func runMetrics(_ *cobra.Command, _ []string) error {
 
 	wg.Wait()
 
+	// Round-trip through map[string]any so the filter can walk a uniform shape.
+	raw, err := json.Marshal(out)
+	if err != nil {
+		return err
+	}
+	var doc any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return err
+	}
+
+	if len(args) == 1 && args[0] != "" && args[0] != "." {
+		doc = applyFilter(doc, args[0])
+	}
+
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(out)
+	return enc.Encode(doc)
+}
+
+// applyFilter walks a dotted path through a JSON value (object/array/scalar).
+// Leading "." is optional. Numeric segments index into arrays. Missing keys
+// or out-of-range indices return nil (rendered as JSON null).
+func applyFilter(doc any, path string) any {
+	path = strings.TrimPrefix(path, ".")
+	if path == "" {
+		return doc
+	}
+	cur := doc
+	for _, seg := range strings.Split(path, ".") {
+		if seg == "" {
+			continue
+		}
+		switch v := cur.(type) {
+		case map[string]any:
+			cur = v[seg]
+		case []any:
+			i, err := strconv.Atoi(seg)
+			if err != nil || i < 0 || i >= len(v) {
+				return nil
+			}
+			cur = v[i]
+		default:
+			return nil
+		}
+	}
+	return cur
 }
 
 func runSetup(_ *cobra.Command, _ []string) error {
