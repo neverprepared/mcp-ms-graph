@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -87,6 +89,7 @@ type metricsOutput struct {
 }
 
 func runMetrics(_ *cobra.Command, _ []string) error {
+	log.SetOutput(io.Discard)
 	c, err := client.New(&cache.TokenCache{})
 	if err != nil {
 		return err
