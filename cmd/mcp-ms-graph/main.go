@@ -46,7 +46,7 @@ func main() {
 		RunE:  runSetup,
 	})
 
-	root.AddCommand(&cobra.Command{
+	metricsCmd := &cobra.Command{
 		Use:   "metrics [filter]",
 		Short: "Print a JSON snapshot of key metrics (mail counts, upcoming meetings, presence)",
 		Long: `Print a JSON snapshot of key metrics.
@@ -54,15 +54,20 @@ func main() {
 An optional filter argument selects a subset of the output using a dotted path
 (jq-style, no jq required). The leading dot is optional. Examples:
 
-  mcp-ms-graph metrics                    # full document
-  mcp-ms-graph metrics .mail              # just the mail object
-  mcp-ms-graph metrics .mail.unread       # just the unread count (scalar)
-  mcp-ms-graph metrics .account.email     # current account email
+  mcp-ms-graph metrics                         # full document
+  mcp-ms-graph metrics .mail                   # just the mail object
+  mcp-ms-graph metrics .mail.unread            # scalar (JSON number)
+  mcp-ms-graph metrics .mail.unread -r         # raw: 96
+  mcp-ms-graph metrics .mail.unread --type int # coerce to integer
+  mcp-ms-graph metrics .presence.availability -r  # raw: Available
 
 Missing paths return JSON null.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: runMetrics,
-	})
+	}
+	metricsCmd.Flags().BoolP("raw", "r", false, "Output scalars without JSON encoding (no quotes on strings)")
+	metricsCmd.Flags().String("type", "", "Coerce scalar output to type: int, float, string, bool")
+	root.AddCommand(metricsCmd)
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -107,7 +112,7 @@ type metricsOutput struct {
 	Errors      []string        `json:"errors,omitempty"`
 }
 
-func runMetrics(_ *cobra.Command, args []string) error {
+func runMetrics(cmd *cobra.Command, args []string) error {
 	log.SetOutput(io.Discard)
 	c, err := client.New(&cache.TokenCache{})
 	if err != nil {
@@ -252,9 +257,93 @@ func runMetrics(_ *cobra.Command, args []string) error {
 		doc = applyFilter(doc, args[0])
 	}
 
+	raw2, _ := cmd.Flags().GetBool("raw")
+	typeName, _ := cmd.Flags().GetString("type")
+	if typeName != "" {
+		doc = coerceType(doc, typeName)
+	}
+	if raw2 || typeName != "" {
+		if s, ok := formatRaw(doc); ok {
+			fmt.Fprintln(os.Stdout, s)
+			return nil
+		}
+	}
+
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(doc)
+}
+
+// coerceType converts a scalar JSON value to the requested Go type.
+func coerceType(v any, t string) any {
+	switch t {
+	case "int":
+		switch n := v.(type) {
+		case float64:
+			return int64(n)
+		case string:
+			if i, err := strconv.ParseInt(n, 10, 64); err == nil {
+				return i
+			}
+		case bool:
+			if n {
+				return int64(1)
+			}
+			return int64(0)
+		}
+	case "float":
+		switch n := v.(type) {
+		case float64:
+			return n
+		case string:
+			if f, err := strconv.ParseFloat(n, 64); err == nil {
+				return f
+			}
+		case bool:
+			if n {
+				return float64(1)
+			}
+			return float64(0)
+		}
+	case "string":
+		switch n := v.(type) {
+		case float64:
+			return strconv.FormatFloat(n, 'f', -1, 64)
+		case bool:
+			return strconv.FormatBool(n)
+		case int64:
+			return strconv.FormatInt(n, 10)
+		}
+	case "bool":
+		switch n := v.(type) {
+		case float64:
+			return n != 0
+		case string:
+			b, err := strconv.ParseBool(n)
+			if err == nil {
+				return b
+			}
+		}
+	}
+	return v
+}
+
+// formatRaw renders a scalar without JSON encoding. Returns false for
+// objects/arrays so the caller falls back to JSON output.
+func formatRaw(v any) (string, bool) {
+	switch n := v.(type) {
+	case string:
+		return n, true
+	case float64:
+		return strconv.FormatFloat(n, 'f', -1, 64), true
+	case int64:
+		return strconv.FormatInt(n, 10), true
+	case bool:
+		return strconv.FormatBool(n), true
+	case nil:
+		return "null", true
+	}
+	return "", false
 }
 
 // applyFilter walks a dotted path through a JSON value (object/array/scalar).
