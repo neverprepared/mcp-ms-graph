@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -89,6 +90,74 @@ func RegisterMailTools(s *server.MCPServer, c *client.GraphClient) {
 			"date":    msg.ReceivedDateTime.Format(time.RFC3339),
 			"body":    body,
 		}), nil
+	}))
+
+	s.AddTool(mcp.NewTool("read_emails_batch",
+		mcp.WithDescription("Read multiple email messages in one batch request. Use instead of calling read_email repeatedly. Pass up to 100 IDs; they are fetched in chunks of 20 via Graph's $batch endpoint."),
+		mcp.WithString("message_ids", mcp.Required(), mcp.Description(`JSON array of message IDs, e.g. ["id1","id2","id3"].`)),
+	), wrap("read_emails_batch", func(req mcp.CallToolRequest) (string, error) {
+		raw := strArg(req, "message_ids")
+		if raw == "" {
+			return "", fmt.Errorf("message_ids is required")
+		}
+		var ids []string
+		if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+			return "", fmt.Errorf("message_ids must be a JSON array of strings: %w", err)
+		}
+		if len(ids) == 0 {
+			return "", fmt.Errorf("message_ids must not be empty")
+		}
+		if len(ids) > 100 {
+			ids = ids[:100]
+		}
+
+		g, err := c.Graph()
+		if err != nil {
+			return "", err
+		}
+		byID, err := g.BatchGetMessages(ids)
+		if err != nil {
+			return "", err
+		}
+
+		type emailResult struct {
+			ID      string   `json:"id"`
+			Subject string   `json:"subject"`
+			From    string   `json:"from"`
+			To      []string `json:"to"`
+			Date    string   `json:"date"`
+			Body    string   `json:"body"`
+			Error   string   `json:"error,omitempty"`
+		}
+		results := make([]emailResult, len(ids))
+		for i, id := range ids {
+			msg := byID[id]
+			if msg == nil {
+				results[i] = emailResult{ID: id, Error: "not found or fetch failed"}
+				continue
+			}
+			body := msg.Body.Content
+			if msg.Body.ContentType == "html" {
+				body = util.HTMLToText(body)
+			}
+			from := ""
+			if msg.From != nil {
+				from = fmt.Sprintf("%s <%s>", msg.From.EmailAddress.Name, msg.From.EmailAddress.Address)
+			}
+			var tos []string
+			for _, r := range msg.ToRecipients {
+				tos = append(tos, fmt.Sprintf("%s <%s>", r.EmailAddress.Name, r.EmailAddress.Address))
+			}
+			results[i] = emailResult{
+				ID:      id,
+				Subject: msg.Subject,
+				From:    from,
+				To:      tos,
+				Date:    msg.ReceivedDateTime.Format(time.RFC3339),
+				Body:    body,
+			}
+		}
+		return okJSON(results), nil
 	}))
 
 	s.AddTool(mcp.NewTool("send_email",

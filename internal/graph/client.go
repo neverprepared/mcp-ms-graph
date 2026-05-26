@@ -10,6 +10,28 @@ import (
 	"golang.org/x/oauth2"
 )
 
+type BatchRequest struct {
+	ID     string `json:"id"`
+	Method string `json:"method"`
+	URL    string `json:"url"`
+}
+
+type BatchResponse struct {
+	ID     string          `json:"id"`
+	Status int             `json:"status"`
+	Body   json.RawMessage `json:"body"`
+}
+
+func (c *Client) Batch(requests []BatchRequest) ([]BatchResponse, error) {
+	var result struct {
+		Responses []BatchResponse `json:"responses"`
+	}
+	if err := c.Post("/$batch", map[string]any{"requests": requests}, &result); err != nil {
+		return nil, err
+	}
+	return result.Responses, nil
+}
+
 const BaseURL = "https://graph.microsoft.com/v1.0"
 
 type Client struct {

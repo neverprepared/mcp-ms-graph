@@ -9,7 +9,7 @@ AES-256-GCM. The server stores the encrypted token at
 `$XDG_CONFIG_HOME/mcp-ms-graph/token.enc` and refreshes it on demand by
 publishing a `refresh_request` event back to the extension.
 
-21 tools across 5 domains: Teams chat (3), People search (1), Outlook mail (9),
+22 tools across 5 domains: Teams chat (3), People search (1), Outlook mail (10),
 Calendar (6), Profile + Presence (2).
 
 ## Install
@@ -68,7 +68,7 @@ mv mcp-ms-graph /usr/local/bin/
 |------------|---------------------------------------------------------------------------------------------|
 | Chat       | `list_chats`, `get_chat_messages`, `send_chat_message`                                      |
 | People     | `search_people`                                                                             |
-| Mail       | `list_emails`, `read_email`, `send_email`, `reply_to_email`, `delete_email`, `mark_email_read`, `mark_email_unread`, `list_mail_folders`, `move_email` |
+| Mail       | `list_emails`, `read_email`, `read_emails_batch`, `send_email`, `reply_to_email`, `delete_email`, `mark_email_read`, `mark_email_unread`, `list_mail_folders`, `move_email` |
 | Calendar   | `list_events`, `create_event`, `accept_event`, `decline_event`, `tentative_event`, `delete_event` |
 | Profile    | `get_profile`, `get_presence`                                                               |
 

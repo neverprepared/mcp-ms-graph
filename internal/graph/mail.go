@@ -1,12 +1,61 @@
 package graph
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
+
+const batchSize = 20
+const msgSelectFields = "$select=id,subject,from,toRecipients,receivedDateTime,body,isRead,hasAttachments"
+
+// BatchGetMessages fetches multiple messages in parallel using Graph's $batch
+// endpoint (max 20 per request). Returns a map of message ID → message.
+// Messages that 404 or error are omitted from the map.
+func (c *Client) BatchGetMessages(ids []string) (map[string]*MailMessage, error) {
+	results := make(map[string]*MailMessage, len(ids))
+
+	for i := 0; i < len(ids); i += batchSize {
+		end := i + batchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		chunk := ids[i:end]
+
+		requests := make([]BatchRequest, len(chunk))
+		for j, id := range chunk {
+			requests[j] = BatchRequest{
+				ID:     strconv.Itoa(j),
+				Method: "GET",
+				URL:    fmt.Sprintf("/me/messages/%s?%s", id, msgSelectFields),
+			}
+		}
+
+		responses, err := c.Batch(requests)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, resp := range responses {
+			if resp.Status != 200 {
+				continue
+			}
+			idx, err := strconv.Atoi(resp.ID)
+			if err != nil || idx < 0 || idx >= len(chunk) {
+				continue
+			}
+			var msg MailMessage
+			if err := json.Unmarshal(resp.Body, &msg); err == nil {
+				results[chunk[idx]] = &msg
+			}
+		}
+	}
+	return results, nil
+}
 
 type MailMessage struct {
 	ID               string      `json:"id"`
