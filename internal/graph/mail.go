@@ -201,6 +201,24 @@ type MailFolder struct {
 	UnreadItemCount  int    `json:"unreadItemCount"`
 }
 
+type InboxStats struct {
+	Unread int `json:"unread"`
+	Total  int `json:"total"`
+}
+
+// GetInboxStats returns unread and total message counts from the inbox folder
+// object — much faster than counting messages.
+func (c *Client) GetInboxStats() (*InboxStats, error) {
+	var folder struct {
+		TotalItemCount  int `json:"totalItemCount"`
+		UnreadItemCount int `json:"unreadItemCount"`
+	}
+	if err := c.Get("/me/mailFolders/inbox?$select=totalItemCount,unreadItemCount", &folder); err != nil {
+		return nil, err
+	}
+	return &InboxStats{Unread: folder.UnreadItemCount, Total: folder.TotalItemCount}, nil
+}
+
 // ListMailFolders returns the top-level mail folders, including well-known
 // folders like Inbox, Archive, Deleted Items, Drafts, Sent Items, Junk Email.
 func (c *Client) ListMailFolders() ([]MailFolder, error) {

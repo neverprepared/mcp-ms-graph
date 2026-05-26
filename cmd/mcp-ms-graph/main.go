@@ -2,12 +2,17 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/neverprepared/mcp-ms-graph/internal/cache"
+	"github.com/neverprepared/mcp-ms-graph/internal/client"
+	"github.com/neverprepared/mcp-ms-graph/internal/graph"
 	"github.com/neverprepared/mcp-ms-graph/internal/secrets"
 	mcpserver "github.com/neverprepared/mcp-ms-graph/internal/server"
 	"github.com/spf13/cobra"
@@ -38,6 +43,12 @@ func main() {
 		RunE:  runSetup,
 	})
 
+	root.AddCommand(&cobra.Command{
+		Use:   "metrics",
+		Short: "Print a JSON snapshot of key metrics (mail counts, upcoming meetings, presence)",
+		RunE:  runMetrics,
+	})
+
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
@@ -50,6 +61,142 @@ func runServe(_ *cobra.Command, _ []string) error {
 	}
 	defer s.Stop()
 	return server.ServeStdio(s.MCP)
+}
+
+type nextEvent struct {
+	Subject  string `json:"subject"`
+	Start    string `json:"start"`
+	End      string `json:"end"`
+	JoinURL  string `json:"join_url,omitempty"`
+	Location string `json:"location,omitempty"`
+}
+
+type metricsOutput struct {
+	Mail     *graph.InboxStats `json:"mail"`
+	Calendar struct {
+		CurrentlyInMeeting bool        `json:"currently_in_meeting"`
+		RemainingToday     int         `json:"remaining_today"`
+		Next               *nextEvent  `json:"next,omitempty"`
+	} `json:"calendar"`
+	Chat struct {
+		Unread int `json:"unread"`
+	} `json:"chat"`
+	Presence    *graph.Presence `json:"presence"`
+	CollectedAt string          `json:"collected_at"`
+	Errors      []string        `json:"errors,omitempty"`
+}
+
+func runMetrics(_ *cobra.Command, _ []string) error {
+	c, err := client.New(&cache.TokenCache{})
+	if err != nil {
+		return err
+	}
+	g, err := c.Graph()
+	if err != nil {
+		return err
+	}
+
+	var (
+		mu  sync.Mutex
+		wg  sync.WaitGroup
+		out metricsOutput
+	)
+	out.CollectedAt = time.Now().UTC().Format(time.RFC3339)
+
+	addErr := func(e error) {
+		mu.Lock()
+		out.Errors = append(out.Errors, e.Error())
+		mu.Unlock()
+	}
+
+	// inbox stats
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		stats, err := g.GetInboxStats()
+		if err != nil {
+			addErr(fmt.Errorf("mail: %w", err))
+			return
+		}
+		mu.Lock()
+		out.Mail = stats
+		mu.Unlock()
+	}()
+
+	// calendar: all events today so we can detect in-progress meetings
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		now := time.Now()
+		startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
+		events, err := g.GetCalendarView(startOfDay, endOfDay)
+		if err != nil {
+			addErr(fmt.Errorf("calendar: %w", err))
+			return
+		}
+		mu.Lock()
+		var remaining []graph.Event
+		for _, e := range events {
+			start := e.StartTime()
+			end := e.EndTime()
+			if end.After(now) {
+				remaining = append(remaining, e)
+			}
+			if !start.After(now) && end.After(now) {
+				out.Calendar.CurrentlyInMeeting = true
+			}
+		}
+		out.Calendar.RemainingToday = len(remaining)
+		if len(remaining) > 0 {
+			e := remaining[0]
+			ne := &nextEvent{
+				Subject: e.Subject,
+				Start:   e.StartTime().UTC().Format(time.RFC3339),
+				End:     e.EndTime().UTC().Format(time.RFC3339),
+				JoinURL: e.JoinURL(),
+			}
+			if e.Location != nil {
+				ne.Location = e.Location.DisplayName
+			}
+			out.Calendar.Next = ne
+		}
+		mu.Unlock()
+	}()
+
+	// unread chat count
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		count, err := g.GetUnreadChatCount()
+		if err != nil {
+			addErr(fmt.Errorf("chat: %w", err))
+			return
+		}
+		mu.Lock()
+		out.Chat.Unread = count
+		mu.Unlock()
+	}()
+
+	// presence
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		p, err := g.GetMyPresence()
+		if err != nil {
+			addErr(fmt.Errorf("presence: %w", err))
+			return
+		}
+		mu.Lock()
+		out.Presence = p
+		mu.Unlock()
+	}()
+
+	wg.Wait()
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
 }
 
 func runSetup(_ *cobra.Command, _ []string) error {

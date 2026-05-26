@@ -8,6 +8,26 @@ import (
 	"net/http"
 )
 
+// GetUnreadChatCount returns the number of chats that have messages newer than
+// the user's last-read timestamp (via the viewpoint property).
+func (c *Client) GetUnreadChatCount() (int, error) {
+	path := "/me/chats?$select=id,viewpoint&$expand=lastMessagePreview&$top=50"
+	var result GraphList[Chat]
+	if err := c.Get(path, &result); err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, chat := range result.Value {
+		if chat.Viewpoint == nil || chat.LastMessagePreview == nil {
+			continue
+		}
+		if chat.LastMessagePreview.CreatedDateTime.After(chat.Viewpoint.LastMessageReadDateTime) {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (c *Client) ListChats(limit int) ([]Chat, error) {
 	path := fmt.Sprintf("/me/chats?$expand=members,lastMessagePreview&$top=%d", limit)
 	var result GraphList[Chat]

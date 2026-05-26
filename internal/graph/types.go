@@ -7,13 +7,19 @@ type GraphList[T any] struct {
 	NextLink string `json:"@odata.nextLink"`
 }
 
+type ChatViewpoint struct {
+	IsHidden                bool      `json:"isHidden"`
+	LastMessageReadDateTime time.Time `json:"lastMessageReadDateTime"`
+}
+
 type Chat struct {
-	ID                   string        `json:"id"`
-	Topic                string        `json:"topic"`
-	ChatType             string        `json:"chatType"`
-	LastUpdatedDateTime  time.Time     `json:"lastUpdatedDateTime"`
-	Members              []ChatMember  `json:"members"`
-	LastMessagePreview   *MessagePreview `json:"lastMessagePreview"`
+	ID                  string          `json:"id"`
+	Topic               string          `json:"topic"`
+	ChatType            string          `json:"chatType"`
+	LastUpdatedDateTime time.Time       `json:"lastUpdatedDateTime"`
+	Members             []ChatMember    `json:"members"`
+	LastMessagePreview  *MessagePreview `json:"lastMessagePreview"`
+	Viewpoint           *ChatViewpoint  `json:"viewpoint"`
 }
 
 type ChatMember struct {
