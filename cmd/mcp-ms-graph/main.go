@@ -70,11 +70,14 @@ Missing paths return JSON null.`,
 	root.AddCommand(metricsCmd)
 
 	calendarCmd := &cobra.Command{
-		Use:   "calendar",
+		Use:   "calendar [filter]",
 		Short: "List calendar events (default: today)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  runCalendar,
 	}
 	calendarCmd.Flags().IntP("days", "d", 1, "Number of days to show (default 1 = today only)")
+	calendarCmd.Flags().BoolP("raw", "r", false, "Output scalars without JSON encoding")
+	calendarCmd.Flags().String("type", "", "Coerce scalar output to type: int, float, string, bool")
 	root.AddCommand(calendarCmd)
 
 	if err := root.Execute(); err != nil {
@@ -383,7 +386,7 @@ func applyFilter(doc any, path string) any {
 	return cur
 }
 
-func runCalendar(cmd *cobra.Command, _ []string) error {
+func runCalendar(cmd *cobra.Command, args []string) error {
 	log.SetOutput(io.Discard)
 	days, _ := cmd.Flags().GetInt("days")
 	if days < 1 {
@@ -457,9 +460,29 @@ func runCalendar(cmd *cobra.Command, _ []string) error {
 		out = append(out, ev)
 	}
 
+	raw, _ := json.Marshal(out)
+	var doc any
+	_ = json.Unmarshal(raw, &doc)
+
+	if len(args) == 1 && args[0] != "" && args[0] != "." {
+		doc = applyFilter(doc, args[0])
+	}
+
+	rawFlag, _ := cmd.Flags().GetBool("raw")
+	typeName, _ := cmd.Flags().GetString("type")
+	if typeName != "" {
+		doc = coerceType(doc, typeName)
+	}
+	if rawFlag || typeName != "" {
+		if s, ok := formatRaw(doc); ok {
+			fmt.Fprint(os.Stdout, s)
+			return nil
+		}
+	}
+
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(out)
+	return enc.Encode(doc)
 }
 
 func runSetup(_ *cobra.Command, _ []string) error {
