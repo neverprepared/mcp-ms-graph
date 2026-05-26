@@ -412,33 +412,45 @@ func runCalendar(cmd *cobra.Command, args []string) error {
 	}
 
 	type eventOut struct {
-		ID              string   `json:"id"`
-		Subject         string   `json:"subject"`
-		Start           string   `json:"start"`
-		End             string   `json:"end"`
-		AllDay          bool     `json:"all_day,omitempty"`
-		Cancelled       bool     `json:"cancelled,omitempty"`
-		Location        string   `json:"location,omitempty"`
-		JoinURL         string   `json:"join_url,omitempty"`
-		Organizer       string   `json:"organizer,omitempty"`
-		Response        string   `json:"response,omitempty"`
-		ShowAs          string   `json:"show_as,omitempty"`
-		Attendees       []string `json:"attendees,omitempty"`
-		IsOnlineMeeting bool     `json:"is_online_meeting,omitempty"`
+		ID                    string   `json:"id"`
+		Subject               string   `json:"subject"`
+		Start                 string   `json:"start"`
+		End                   string   `json:"end"`
+		AllDay                bool     `json:"all_day,omitempty"`
+		Cancelled             bool     `json:"cancelled,omitempty"`
+		Recurring             bool     `json:"recurring,omitempty"`
+		Location              string   `json:"location,omitempty"`
+		JoinURL               string   `json:"join_url,omitempty"`
+		Organizer             string   `json:"organizer,omitempty"`
+		Response              string   `json:"response,omitempty"`
+		ShowAs                string   `json:"show_as,omitempty"`
+		Sensitivity           string   `json:"sensitivity,omitempty"`
+		Importance            string   `json:"importance,omitempty"`
+		BodyPreview           string   `json:"body_preview,omitempty"`
+		OnlineMeetingProvider string   `json:"online_meeting_provider,omitempty"`
+		SeriesMasterID        string   `json:"series_master_id,omitempty"`
+		Attendees             []string `json:"attendees,omitempty"`
+		IsOnlineMeeting       bool     `json:"is_online_meeting,omitempty"`
 	}
 
 	out := make([]eventOut, 0, len(events))
 	for _, e := range events {
 		ev := eventOut{
-			ID:              e.ID,
-			Subject:         e.Subject,
-			Start:           e.StartTime().Local().Format(time.RFC3339),
-			End:             e.EndTime().Local().Format(time.RFC3339),
-			AllDay:          e.IsAllDay,
-			Cancelled:       e.IsCancelled,
-			JoinURL:         e.JoinURL(),
-			ShowAs:          e.ShowAs,
-			IsOnlineMeeting: e.IsOnlineMeeting,
+			ID:                    e.ID,
+			Subject:               e.Subject,
+			Start:                 e.StartTime().Local().Format(time.RFC3339),
+			End:                   e.EndTime().Local().Format(time.RFC3339),
+			AllDay:                e.IsAllDay,
+			Cancelled:             e.IsCancelled,
+			Recurring:             e.Recurrence != nil,
+			JoinURL:               e.JoinURL(),
+			ShowAs:                e.ShowAs,
+			Sensitivity:           e.Sensitivity,
+			Importance:            e.Importance,
+			BodyPreview:           e.BodyPreview,
+			OnlineMeetingProvider: e.OnlineMeetingProvider,
+			SeriesMasterID:        e.SeriesMasterID,
+			IsOnlineMeeting:       e.IsOnlineMeeting,
 		}
 		if e.Location != nil && e.Location.DisplayName != "" {
 			ev.Location = e.Location.DisplayName
