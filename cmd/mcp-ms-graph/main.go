@@ -94,34 +94,35 @@ func runServe(_ *cobra.Command, _ []string) error {
 	return server.ServeStdio(s.MCP)
 }
 
-type nextEvent struct {
-	Subject  string `json:"subject"`
-	Start    string `json:"start"`
-	End      string `json:"end"`
-	JoinURL  string `json:"join_url,omitempty"`
-	Location string `json:"location,omitempty"`
+// TimelineAction and TimelineEntry implement the phantom-ink output contract.
+// Schema: https://github.com/neverprepared/phantom-ink/blob/main/contracts/timeline-entry.schema.json
+type TimelineAction struct {
+	Label    string `json:"label"`
+	Kind     string `json:"kind"`
+	URL      string `json:"url,omitempty"`
+	Value    string `json:"value,omitempty"`
+	Agent    string `json:"agent,omitempty"`
+	Prompt   string `json:"prompt,omitempty"`
+	Template string `json:"template,omitempty"`
 }
 
-type accountInfo struct {
-	Email       string `json:"email"`
-	DisplayName string `json:"display_name,omitempty"`
+type TimelineEntry struct {
+	ID          string            `json:"id"`
+	Kind        string            `json:"kind"`
+	Title       string            `json:"title"`
+	Description *string           `json:"description,omitempty"`
+	Value       *string           `json:"value,omitempty"`
+	URL         *string           `json:"url,omitempty"`
+	StartAt     *int64            `json:"start_at,omitempty"`
+	EndAt       *int64            `json:"end_at,omitempty"`
+	Status      string            `json:"status,omitempty"`
+	Tags        []string          `json:"tags,omitempty"`
+	Metadata    map[string]any    `json:"metadata,omitempty"`
+	Actions     []TimelineAction  `json:"actions,omitempty"`
 }
 
-type metricsOutput struct {
-	Account  *accountInfo      `json:"account"`
-	Mail     *graph.InboxStats `json:"mail"`
-	Calendar struct {
-		CurrentlyInMeeting bool       `json:"currently_in_meeting"`
-		RemainingToday     int        `json:"remaining_today"`
-		Next               *nextEvent `json:"next,omitempty"`
-	} `json:"calendar"`
-	Chat struct {
-		Unread int `json:"unread"`
-	} `json:"chat"`
-	Presence    *graph.Presence `json:"presence"`
-	CollectedAt string          `json:"collected_at"`
-	Errors      []string        `json:"errors,omitempty"`
-}
+func strPtr(s string) *string { return &s }
+func i64Ptr(i int64) *int64   { return &i }
 
 func runMetrics(cmd *cobra.Command, args []string) error {
 	log.SetOutput(io.Discard)
@@ -135,55 +136,25 @@ func runMetrics(cmd *cobra.Command, args []string) error {
 	}
 
 	var (
-		mu  sync.Mutex
-		wg  sync.WaitGroup
-		out metricsOutput
+		mu          sync.Mutex
+		wg          sync.WaitGroup
+		mailStats   *graph.InboxStats
+		calRemain   int
+		calInMeet   bool
+		chatUnread  int
+		presence    *graph.Presence
 	)
-	out.CollectedAt = time.Now().UTC().Format(time.RFC3339)
 
-	addErr := func(e error) {
-		mu.Lock()
-		out.Errors = append(out.Errors, e.Error())
-		mu.Unlock()
-	}
+	addErr := func(_ error) {} // swallow — omit failed metrics rather than poisoning output
 
-	// account (/me)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		var me struct {
-			Mail              string `json:"mail"`
-			UserPrincipalName string `json:"userPrincipalName"`
-			DisplayName       string `json:"displayName"`
-		}
-		if err := g.Get("/me?$select=mail,userPrincipalName,displayName", &me); err != nil {
-			addErr(fmt.Errorf("account: %w", err))
-			return
-		}
-		email := me.Mail
-		if email == "" {
-			email = me.UserPrincipalName
-		}
-		mu.Lock()
-		out.Account = &accountInfo{Email: email, DisplayName: me.DisplayName}
-		mu.Unlock()
-	}()
-
-	// inbox stats
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		stats, err := g.GetInboxStats()
-		if err != nil {
-			addErr(fmt.Errorf("mail: %w", err))
-			return
-		}
-		mu.Lock()
-		out.Mail = stats
-		mu.Unlock()
+		if err != nil { addErr(err); return }
+		mu.Lock(); mailStats = stats; mu.Unlock()
 	}()
 
-	// calendar: all events today so we can detect in-progress meetings
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -191,98 +162,96 @@ func runMetrics(cmd *cobra.Command, args []string) error {
 		startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 		endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
 		events, err := g.GetCalendarView(startOfDay, endOfDay)
-		if err != nil {
-			addErr(fmt.Errorf("calendar: %w", err))
-			return
-		}
+		if err != nil { addErr(err); return }
 		mu.Lock()
-		var remaining []graph.Event
 		for _, e := range events {
-			start := e.StartTime()
 			end := e.EndTime()
 			if end.After(now) {
-				remaining = append(remaining, e)
+				calRemain++
 			}
-			if !start.After(now) && end.After(now) {
-				out.Calendar.CurrentlyInMeeting = true
+			if !e.StartTime().After(now) && end.After(now) {
+				calInMeet = true
 			}
-		}
-		out.Calendar.RemainingToday = len(remaining)
-		if len(remaining) > 0 {
-			e := remaining[0]
-			ne := &nextEvent{
-				Subject: e.Subject,
-				Start:   e.StartTime().UTC().Format(time.RFC3339),
-				End:     e.EndTime().UTC().Format(time.RFC3339),
-				JoinURL: e.JoinURL(),
-			}
-			if e.Location != nil {
-				ne.Location = e.Location.DisplayName
-			}
-			out.Calendar.Next = ne
 		}
 		mu.Unlock()
 	}()
 
-	// unread chat count
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		count, err := g.GetUnreadChatCount()
-		if err != nil {
-			addErr(fmt.Errorf("chat: %w", err))
-			return
-		}
-		mu.Lock()
-		out.Chat.Unread = count
-		mu.Unlock()
+		n, err := g.GetUnreadChatCount()
+		if err != nil { addErr(err); return }
+		mu.Lock(); chatUnread = n; mu.Unlock()
 	}()
 
-	// presence
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		p, err := g.GetMyPresence()
-		if err != nil {
-			addErr(fmt.Errorf("presence: %w", err))
-			return
-		}
-		mu.Lock()
-		out.Presence = p
-		mu.Unlock()
+		if err != nil { addErr(err); return }
+		mu.Lock(); presence = p; mu.Unlock()
 	}()
 
 	wg.Wait()
 
-	// Round-trip through map[string]any so the filter can walk a uniform shape.
-	raw, err := json.Marshal(out)
-	if err != nil {
-		return err
-	}
-	var doc any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		return err
+	var entries []TimelineEntry
+
+	if mailStats != nil {
+		entries = append(entries, TimelineEntry{
+			ID:     "mail-unread",
+			Kind:   "metric",
+			Title:  "Unread Mail",
+			Value:  strPtr(strconv.Itoa(mailStats.Unread)),
+			Status: "active",
+			Tags:   []string{"mail", "ms-graph", "outlook"},
+			Metadata: map[string]any{"total": mailStats.Total},
+		})
 	}
 
-	if len(args) == 1 && args[0] != "" && args[0] != "." {
-		doc = applyFilter(doc, args[0])
+	entries = append(entries, TimelineEntry{
+		ID:     "chat-unread",
+		Kind:   "metric",
+		Title:  "Unread Chats",
+		Value:  strPtr(strconv.Itoa(chatUnread)),
+		Status: "active",
+		Tags:   []string{"chat", "teams", "ms-graph"},
+	})
+
+	entries = append(entries, TimelineEntry{
+		ID:     "calendar-remaining-today",
+		Kind:   "metric",
+		Title:  "Remaining Meetings Today",
+		Value:  strPtr(strconv.Itoa(calRemain)),
+		Status: "active",
+		Tags:   []string{"calendar", "ms-graph"},
+	})
+
+	inMeetVal := "false"
+	if calInMeet {
+		inMeetVal = "true"
+	}
+	entries = append(entries, TimelineEntry{
+		ID:     "calendar-in-meeting",
+		Kind:   "metric",
+		Title:  "In Meeting",
+		Value:  strPtr(inMeetVal),
+		Status: "active",
+		Tags:   []string{"calendar", "ms-graph"},
+	})
+
+	if presence != nil {
+		entries = append(entries, TimelineEntry{
+			ID:     "presence",
+			Kind:   "metric",
+			Title:  "Presence",
+			Value:  strPtr(presence.Availability),
+			Status: "active",
+			Tags:   []string{"presence", "teams", "ms-graph"},
+			Metadata: map[string]any{"activity": presence.Activity},
+		})
 	}
 
-	raw2, _ := cmd.Flags().GetBool("raw")
-	typeName, _ := cmd.Flags().GetString("type")
-	if typeName != "" {
-		doc = coerceType(doc, typeName)
-	}
-	if raw2 || typeName != "" {
-		if s, ok := formatRaw(doc); ok {
-			fmt.Fprint(os.Stdout, s)
-			return nil
-		}
-	}
-
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(doc)
+	return outputEntries(cmd, args, entries)
 }
 
 // coerceType converts a scalar JSON value to the requested Go type.
@@ -411,70 +380,99 @@ func runCalendar(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	type eventOut struct {
-		ID                    string   `json:"id"`
-		Subject               string   `json:"subject"`
-		Start                 string   `json:"start"`
-		End                   string   `json:"end"`
-		AllDay                bool     `json:"all_day,omitempty"`
-		Cancelled             bool     `json:"cancelled,omitempty"`
-		Recurring             bool     `json:"recurring,omitempty"`
-		Location              string   `json:"location,omitempty"`
-		JoinURL               string   `json:"join_url,omitempty"`
-		Organizer             string   `json:"organizer,omitempty"`
-		Response              string   `json:"response,omitempty"`
-		ShowAs                string   `json:"show_as,omitempty"`
-		Sensitivity           string   `json:"sensitivity,omitempty"`
-		Importance            string   `json:"importance,omitempty"`
-		BodyPreview           string   `json:"body_preview,omitempty"`
-		OnlineMeetingProvider string   `json:"online_meeting_provider,omitempty"`
-		SeriesMasterID        string   `json:"series_master_id,omitempty"`
-		Attendees             []string `json:"attendees,omitempty"`
-		IsOnlineMeeting       bool     `json:"is_online_meeting,omitempty"`
-	}
-
-	out := make([]eventOut, 0, len(events))
+	entries := make([]TimelineEntry, 0, len(events))
 	for _, e := range events {
-		ev := eventOut{
-			ID:                    e.ID,
-			Subject:               e.Subject,
-			Start:                 e.StartTime().Local().Format(time.RFC3339),
-			End:                   e.EndTime().Local().Format(time.RFC3339),
-			AllDay:                e.IsAllDay,
-			Cancelled:             e.IsCancelled,
-			Recurring:             e.Recurrence != nil,
-			JoinURL:               e.JoinURL(),
-			ShowAs:                e.ShowAs,
-			Sensitivity:           e.Sensitivity,
-			Importance:            e.Importance,
-			BodyPreview:           e.BodyPreview,
-			OnlineMeetingProvider: e.OnlineMeetingProvider,
-			SeriesMasterID:        e.SeriesMasterID,
-			IsOnlineMeeting:       e.IsOnlineMeeting,
+		startMs := e.StartTime().UnixMilli()
+		endMs := e.EndTime().UnixMilli()
+
+		status := "upcoming"
+		switch {
+		case e.IsCancelled:
+			status = "failed"
+		case e.EndTime().Before(now):
+			status = "done"
+		case !e.StartTime().After(now):
+			status = "active"
+		}
+
+		tags := []string{"calendar", "ms-graph"}
+		if e.IsOnlineMeeting {
+			tags = append(tags, "online-meeting")
+		}
+		if e.Recurrence != nil {
+			tags = append(tags, "recurring")
+		}
+		if e.IsCancelled {
+			tags = append(tags, "cancelled")
+		}
+		if e.IsAllDay {
+			tags = append(tags, "all-day")
+		}
+
+		meta := map[string]any{
+			"show_as":     e.ShowAs,
+			"sensitivity": e.Sensitivity,
+			"importance":  e.Importance,
+			"all_day":     e.IsAllDay,
+			"recurring":   e.Recurrence != nil,
+			"online_meeting_provider": e.OnlineMeetingProvider,
+		}
+		if e.SeriesMasterID != "" {
+			meta["series_master_id"] = e.SeriesMasterID
 		}
 		if e.Location != nil && e.Location.DisplayName != "" {
-			ev.Location = e.Location.DisplayName
+			meta["location"] = e.Location.DisplayName
 		}
 		if e.Organizer != nil {
-			ev.Organizer = e.Organizer.EmailAddress.Name
-			if ev.Organizer == "" {
-				ev.Organizer = e.Organizer.EmailAddress.Address
+			name := e.Organizer.EmailAddress.Name
+			if name == "" {
+				name = e.Organizer.EmailAddress.Address
 			}
+			meta["organizer"] = name
 		}
 		if e.ResponseStatus != nil {
-			ev.Response = e.ResponseStatus.Response
+			meta["response"] = e.ResponseStatus.Response
 		}
+		var attendees []string
 		for _, a := range e.Attendees {
 			name := a.EmailAddress.Name
 			if name == "" {
 				name = a.EmailAddress.Address
 			}
-			ev.Attendees = append(ev.Attendees, name)
+			attendees = append(attendees, name)
 		}
-		out = append(out, ev)
+		if len(attendees) > 0 {
+			meta["attendees"] = attendees
+			meta["attendee_count"] = len(attendees)
+		}
+
+		entry := TimelineEntry{
+			ID:      e.ID,
+			Kind:    "event",
+			Title:   e.Subject,
+			StartAt: i64Ptr(startMs),
+			EndAt:   i64Ptr(endMs),
+			Status:  status,
+			Tags:    tags,
+			Metadata: meta,
+		}
+		if e.BodyPreview != "" {
+			entry.Description = strPtr(e.BodyPreview)
+		}
+		if joinURL := e.JoinURL(); joinURL != "" {
+			entry.URL = strPtr(joinURL)
+			entry.Actions = []TimelineAction{{Label: "Join", Kind: "open_url", URL: joinURL}}
+		}
+
+		entries = append(entries, entry)
 	}
 
-	raw, _ := json.Marshal(out)
+	return outputEntries(cmd, args, entries)
+}
+
+// outputEntries marshals entries through the filter/raw/type pipeline and writes to stdout.
+func outputEntries(cmd *cobra.Command, args []string, entries []TimelineEntry) error {
+	raw, _ := json.Marshal(entries)
 	var doc any
 	_ = json.Unmarshal(raw, &doc)
 
