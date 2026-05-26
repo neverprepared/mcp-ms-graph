@@ -69,6 +69,14 @@ Missing paths return JSON null.`,
 	metricsCmd.Flags().String("type", "", "Coerce scalar output to type: int, float, string, bool")
 	root.AddCommand(metricsCmd)
 
+	calendarCmd := &cobra.Command{
+		Use:   "calendar",
+		Short: "List calendar events (default: today)",
+		RunE:  runCalendar,
+	}
+	calendarCmd.Flags().IntP("days", "d", 1, "Number of days to show (default 1 = today only)")
+	root.AddCommand(calendarCmd)
+
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
@@ -373,6 +381,85 @@ func applyFilter(doc any, path string) any {
 		}
 	}
 	return cur
+}
+
+func runCalendar(cmd *cobra.Command, _ []string) error {
+	log.SetOutput(io.Discard)
+	days, _ := cmd.Flags().GetInt("days")
+	if days < 1 {
+		days = 1
+	}
+
+	c, err := client.New(&cache.TokenCache{})
+	if err != nil {
+		return err
+	}
+	g, err := c.Graph()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	end := start.AddDate(0, 0, days).Add(-time.Second)
+
+	events, err := g.GetCalendarView(start, end)
+	if err != nil {
+		return err
+	}
+
+	type eventOut struct {
+		ID              string   `json:"id"`
+		Subject         string   `json:"subject"`
+		Start           string   `json:"start"`
+		End             string   `json:"end"`
+		AllDay          bool     `json:"all_day,omitempty"`
+		Location        string   `json:"location,omitempty"`
+		JoinURL         string   `json:"join_url,omitempty"`
+		Organizer       string   `json:"organizer,omitempty"`
+		Response        string   `json:"response,omitempty"`
+		ShowAs          string   `json:"show_as,omitempty"`
+		Attendees       []string `json:"attendees,omitempty"`
+		IsOnlineMeeting bool     `json:"is_online_meeting,omitempty"`
+	}
+
+	out := make([]eventOut, 0, len(events))
+	for _, e := range events {
+		ev := eventOut{
+			ID:              e.ID,
+			Subject:         e.Subject,
+			Start:           e.StartTime().Local().Format(time.RFC3339),
+			End:             e.EndTime().Local().Format(time.RFC3339),
+			AllDay:          e.IsAllDay,
+			JoinURL:         e.JoinURL(),
+			ShowAs:          e.ShowAs,
+			IsOnlineMeeting: e.IsOnlineMeeting,
+		}
+		if e.Location != nil && e.Location.DisplayName != "" {
+			ev.Location = e.Location.DisplayName
+		}
+		if e.Organizer != nil {
+			ev.Organizer = e.Organizer.EmailAddress.Name
+			if ev.Organizer == "" {
+				ev.Organizer = e.Organizer.EmailAddress.Address
+			}
+		}
+		if e.ResponseStatus != nil {
+			ev.Response = e.ResponseStatus.Response
+		}
+		for _, a := range e.Attendees {
+			name := a.EmailAddress.Name
+			if name == "" {
+				name = a.EmailAddress.Address
+			}
+			ev.Attendees = append(ev.Attendees, name)
+		}
+		out = append(out, ev)
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
 }
 
 func runSetup(_ *cobra.Command, _ []string) error {
